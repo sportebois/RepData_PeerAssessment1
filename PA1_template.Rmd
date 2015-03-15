@@ -1,25 +1,303 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
+title: 'Reproducible Research: Peer Assessment 1'
+output:
   html_document:
-    keep_md: true
+    fig_caption: yes
+    fig_height: 6
+    keep_md: yes
+    self_contained: no
 ---
+ 
+
+We declare the libraries we will use for the data analysis:
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='figure/')
+```
+
+```{r Library loading,results='hide', message=FALSE, warning=FALSE}
+# dplyr is used for data manipulation
+library(dplyr)
+library(tidyr) # used for spread
+# ggplot2 will be used for the plts
+library(ggplot2)
+# xtable is used to output table into the documentation and get cleaner results
+library(xtable)
+# scales is used to format the axis labels on the graphs
+library(scales) 
+
+# We turn off locale specific translation (for weekdays part)
+Sys.setlocale( category = "LC_ALL", locale =  "C") 
+```
+
+
+## Initialization
+
+Make sure we always work the same way.
+
+```{r Set random seed}
+set.seed(1)
+```
 
 
 ## Loading and preprocessing the data
+
+To looad the data, we start by looking if the data file is already available or need to be unzipped. 
+
+Then we load the raw csv file. Finally, in order to get easy-to parse and display data, we add a shortDate factor variable, which is a string representation of the date. We make sure the factor levels are correctly ordered.
+
+
+```{r unzip and load}
+
+if (!file.exists("activity.csv")) {
+    unzip("activity.zip", exdir=".")
+}
+
+# Process the data directly during the import 
+# by correctly using the date format
+activity <- read.csv("activity.csv", 
+                 header = TRUE, 
+                 colClasses = c("integer", "POSIXct", "integer"))
+
+# Add a human-readable date column to get a clean output 
+activity <- activity %>% mutate(shortDate = format(date))
+activity$shortDate  <- factor(activity$shortDate,
+                                 sort(unique(activity$shortDate)))
+
+
+```
 
 
 
 ## What is mean total number of steps taken per day?
 
 
+We are going to start by computing:
+
+- the total number of steps taken each day, 
+- the median number of steps taken each day,
+- the mean of number of steps taken each day.
+
+We will ignore NAs in this computations, using `na.omit` to remove these observations.
+
+
+```{r Compute the mean, median and tally of steps taken per day, results='asis', tidy=FALSE, comment=NA, message=FALSE, warning=FALSE}
+steps.total.dat <-  na.omit(activity) %>% 
+                group_by(shortDate) %>% 
+                summarise(steps.mean = mean(steps, na.rm = TRUE), 
+                          steps.median = median(steps, na.rm = TRUE),
+                          steps.tally = sum(steps, na.rm = TRUE))
+
+# Cleanup the date to avoid displaying the POSIXct raw value
+print(xtable(steps.total.dat), type="html", include.rownames=FALSE, floating=FALSE)
+```
+
+
+There's a lot of data. To be able to get an idea oof what's going on, we will lot at the distribution of these means.
+
+```{r Distribution of the total of daily steps taken each day day}
+ggplot(steps.total.dat, aes(x = steps.tally)) + 
+    geom_histogram(binwidth = 1500,
+                   colour = "black", fill="white") +
+    labs(title = "Distribution of steps count by day", x = "Steps count", y = "Density") +
+    scale_y_continuous(labels = comma)
+```
+
+
+What are the mean and median of the total number of steps taken per day?
+
+```{r Computing the mean and median values of total number of steps per day}
+
+total.steps.mean <- mean(steps.total.dat$steps.tally, na.rm = TRUE)
+total.steps.median <- median(steps.total.dat$steps.tally, na.rm = TRUE)
+
+
+# Plot the same histogram, with additional layers for the mean and medians
+
+ggplot(steps.total.dat, aes(x=steps.tally)) + 
+    geom_histogram(binwidth=1500,
+                   colour="black", fill="white") +
+    scale_y_continuous(labels=comma) +
+    geom_vline(aes(xintercept=total.steps.median, color="Median", linetype="Median"), show_guide=TRUE) +
+    geom_vline(aes(xintercept=total.steps.mean, color="Mean", linetype="Mean"), show_guide=TRUE) +
+    scale_colour_manual(name="Legend", values=c(Median="firebrick", Mean="blue")) +
+    scale_linetype_manual(name="Legend", values=c(Median="dashed", Mean="dotdash")) +
+    labs(title="Distribution of steps count by day", x="Steps count", y="Count")
+
+# Output the computed values in the report
+cat("Mean:", total.steps.mean)
+cat("Median:", total.steps.median)
+
+```
+
+We can see that the mean and the median are almost equal.
+
 
 ## What is the average daily activity pattern?
+
+In order to get the daily pattern, we will average the steps taken each 5 minute interval accross all days.
+
+We will mark the moment of the day which contains the most steps, avergard across all the days.
+
+```{r Averaging the steps taken across days, for each 5 minutes interval}
+steps.averages <- activity %>% 
+                group_by(interval) %>% 
+                summarise(steps.mean = mean(steps, na.rm = TRUE), 
+                          steps.median = median(steps, na.rm = TRUE),
+                          steps.tally = sum(steps, na.rm = TRUE))
+
+max.ind <- which.max(steps.averages$steps.mean)
+max.values <- steps.averages[max.ind,]
+```
+
+With these values, we can have an overview of a typical day.
+
+
+```{r Plot the evolution of the steps mean across time}
+
+ggplot(data=steps.averages, aes(x=interval, y=steps.mean)) +
+    geom_line() +
+    geom_vline(aes(xintercept=max.values$interval, color="Max", linetype="Max"), show_guide=TRUE ) +
+    scale_colour_manual(name="Legend", values=c(Max="firebrick")) +
+    scale_linetype_manual(name="Legend", values=c(Max="dashed")) +
+    labs(title="Average steps taken over time during a day", x="Interval (in seconds)", y="Average number of steps")
+   
+```
+
+On average, across all the days in the dataset, the 5-minute interval that starts at `r max.values$interval` seconds contains the maximum number of steps, topping at `r max.values$steps.mean`.
 
 
 
 ## Imputing missing values
 
+There's a lot of missing values in the csv. Until now we've done our calculations ignoring them. Let's step back and try to evaluate of many values are issing and which impact this could have.
+
+```{r}
+dataset.length <- length(activity$steps)
+na.values <- is.na(activity$steps)
+na.tally <- sum(na.values)
+na.ratio <- mean(na.values)
+```
+
+The dataset contains `r na.tally` NAs, wich is a ratio of `r na.ratio` (more than 13%) of the `r dataset.length` observations.
+
+
+We've seen that the step count varies a lot over time within a day. We will try to fill the missing values.  
+Before to choose a filling strategy, let's have a quick look at of the NA's are distributed over time in the day.
+
+```{r Get a quick view of the N distrition over the dates}
+# Get the ratio of NA for each day
+na.distrib.across.days <- activity %>% 
+    group_by(date) %>% 
+    summarise(na.steps.ratio = sum(is.na(steps)) / (1.0*length(steps)))
+
+ggplot(data=na.distrib.across.days, aes(x=date, y=na.steps.ratio)) +
+    geom_point() +
+    labs(title="Average daily ratio of NA's", x="Date", y="Ratio of NA's")
+```
+
+Ok, that's interesting! That means that NA values only occured for specific dates: for any date, we have either no NA's during the whole day, or all the interval of the day are NA's. 
+
+The good news is that this finding already tell us that the analysis we ran before, averaging things to get an average day, are not affected by these NA's. No interval has more or less NA values than other intervals. 
+
+We could then fill the NA's by the average value for the same interval other dayes without NA's. 
+
+
+We can create a new dataset with the NA values relaced by these average for the same intervals:
+
+```{r Create a new dataset, replacing NAs by the daily average for the same interval}
+ 
+# To easily inject average count for an interval, we start by creating a dataframe with 1 observation - the average - for as many variable as unique intervals
+steps.averages.lookup <- steps.averages %>% 
+    spread(interval, steps.mean) %>% 
+    select(-c(steps.median, steps.tally)) %>% 
+    summarise_each(funs(mean(., na.rm = TRUE)))
+
+# Now we can use an ifelse to populate the steps from this table if the step is NA 
+new.activity <- activity %>%
+      mutate(steps = ifelse(is.na(steps),
+            as.numeric(steps.averages.lookup[,as.character(interval)]), 
+            steps))
+    
+```
+
+ 
+We will now make a histogram of the total number of steps taken each day and calculate and report the mean and median total number of steps taken per day.
+The goal is to check of these values differ from the estimates from the first part of the assignment? What is the impact of imputing missing data on the estimates of the total daily number of steps?
+
+
+```{r Daily tally with NA filled}
+new.daily.sum <- new.activity %>% 
+                group_by(shortDate) %>% 
+                summarise(steps.mean = mean(steps, na.rm = TRUE), 
+                          steps.median = median(steps, na.rm = TRUE),
+                          steps.tally = sum(steps, na.rm = TRUE))
+
+
+new.total.steps.mean <- mean(new.daily.sum$steps.tally, na.rm = TRUE)
+new.total.steps.median <- median(new.daily.sum$steps.tally, na.rm = TRUE)
+
+ggplot(new.daily.sum, aes(x = steps.tally)) + 
+    geom_histogram(binwidth = 1500,
+                   colour = "black", fill="white") +
+    scale_y_continuous(labels = comma) +
+    geom_vline(aes(xintercept=new.total.steps.median, color="Median", linetype="Median"), show_guide=TRUE) +
+    geom_vline(aes(xintercept=new.total.steps.mean, color="Mean", linetype="Mean"), show_guide=TRUE) +
+    scale_colour_manual(name="Legend", values=c(Median="firebrick", Mean="blue")) +
+    scale_linetype_manual(name="Legend", values=c(Median="dashed", Mean="dotdash")) +
+    labs(title = "Distribution of steps count by day, with NA replaced", x = "Steps count", y = "Count")
+    
+
+# Output the computed values in the report
+    
+cat("Mean:", new.total.steps.mean)
+cat("Median:", new.total.steps.median)
+```
+
+We can see that the statistical properties seems to have been kept almost intact. The mean and medians are the same than for the original set.
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+ 
+We want to compare how the data evolve depending of the date: does it behave the same way on weekends and on weekdays?
+
+In order to run the analysis, we start by creating a new factor variable in the dataset with two levels – “weekday” and “weekend” indicating whether a given date is a weekday or weekend day.
+
+
+```{r Specifiying the week day type for each observation}
+# Add a weekday/weekend factor in the data
+new.activity <- new.activity %>%
+    group_by(date) %>%
+    mutate(dayType = ifelse(weekdays(date) %in% c("Saturday","Sunday"),
+                            "weekend", "weekday")) %>%
+    ungroup()
+new.activity$dayType <- as.factor(new.activity$dayType)
+
+# We want to create the average for these new factors to get the means
+# Columns you want to group by
+
+grp_cols <- c("interval", "dayType")
+dots <- lapply(grp_cols, as.symbol) 
+
+weekday.stats <- new.activity %>% 
+               group_by_(.dots=dots) %>%
+                summarise(steps.mean = mean(steps, na.rm = TRUE), 
+                          steps.median = median(steps, na.rm = TRUE),
+                          steps.tally = sum(steps, na.rm = TRUE))
+
+```
+
+The `weekday.stats` dataframe contains `r nrow(weekday.stats)` observations: each interval appears twice. One time for weekday, one time for weekend.
+
+By now we can make a panel plot containing a time series plot of the 5-minute interval and the average number of steps taken, averaged across all weekday days or weekend days.
+
+```{r Plot the weekend vs weekday step patterns over time}
+
+ggplot(data=weekday.stats, aes(x=interval, y=steps.mean, color=dayType)) +
+    geom_line() +
+    facet_wrap(~dayType, ncol=1) +
+    labs(title="Average steps taken over time during a day", x="Interval (in seconds)", y="Average number of steps")
+
+```
+
+
